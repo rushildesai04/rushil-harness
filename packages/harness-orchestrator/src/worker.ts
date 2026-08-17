@@ -30,6 +30,23 @@ export interface WorkerOptions {
   onText?: (delta: string) => void;
 }
 
+/** Ceiling for process start and the first RPC round trip. */
+const STARTUP_TIMEOUT_MS = 60_000;
+
+async function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${message} within ${ms}ms.`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export interface PromptOutcome {
   timedOut: boolean;
   lastAssistantText: string | null;
@@ -81,7 +98,10 @@ export class Worker {
       });
     });
 
-    await client.start();
+    // A pi process that comes up wedged would otherwise be discovered only when
+    // the first prompt burns the whole turn timeout, so probe it immediately.
+    await withTimeout(client.start(), STARTUP_TIMEOUT_MS, `${agentId}: pi failed to start`);
+    await withTimeout(client.getState(), STARTUP_TIMEOUT_MS, `${agentId}: pi did not respond`);
     // Transient provider errors (429/5xx) are common with subscription auth and
     // concurrent workers; let pi absorb them rather than failing the run.
     await client.setAutoRetry(true);

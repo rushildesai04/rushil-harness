@@ -10,6 +10,7 @@ import {
   type WorkUnit,
 } from "@harness/agents";
 import { type LoadedConfig, RunStore } from "@harness/core";
+import { checkModelAvailability, missingModelIds } from "@harness/pi-adapter";
 import {
   addWorktree,
   assertCleanRepo,
@@ -66,6 +67,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
   const onPhase = options.onPhase ?? (() => undefined);
 
   await assertCleanRepo(repoRoot);
+  await preflight(loaded, onPhase);
   const baseCommit = await resolveCommit(repoRoot, baseRef);
 
   const runId = RunStore.newRunId();
@@ -205,6 +207,34 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     result.reason = error instanceof Error ? error.message : String(error);
     runStore.emit("pipeline:error", { message: result.reason });
     return finish(runStore, result);
+  }
+}
+
+/**
+ * Fail before creating a worktree if the credentials cannot reach a model.
+ *
+ * The alternative is discovering it when the first agent never answers, which
+ * costs a full turn timeout per role and leaves half-built state behind.
+ */
+async function preflight(
+  loaded: LoadedConfig,
+  onPhase: (phase: string, detail?: string) => void,
+): Promise<void> {
+  onPhase("preflight");
+  const availability = await checkModelAvailability();
+  if (!availability.available) {
+    throw new Error(availability.message ?? "No models available to the configured credentials.");
+  }
+
+  const { roles } = loaded.harness;
+  const missing = missingModelIds(availability, [
+    roles.designer.model.id ?? "",
+    roles.implementer.model.id ?? "",
+    roles.adversary.model.id ?? "",
+    roles.combiner.model.id ?? "",
+  ]);
+  if (missing.length > 0) {
+    onPhase("preflight", `warning: not listed by pi — ${missing.join(", ")}`);
   }
 }
 

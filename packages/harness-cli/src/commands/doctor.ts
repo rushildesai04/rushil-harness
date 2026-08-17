@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { loadConfig } from "@harness/core";
-import { checkNodeVersion, PI_VERSION, resolvePiCliPath } from "@harness/pi-adapter";
+import { checkModelAvailability, checkNodeVersion, PI_VERSION, resolvePiCliPath } from "@harness/pi-adapter";
 import { bold, dim, green, red, yellow } from "../ui.ts";
 
 const execFileAsync = promisify(execFile);
@@ -63,17 +63,15 @@ export async function doctorCommand(repoRoot: string): Promise<number> {
     });
   }
 
+  // Ask pi what it can actually reach rather than inferring from files on disk.
+  const availability = await checkModelAvailability();
   const authPath = join(homedir(), ".pi", "agent", "auth.json");
-  const hasStoredAuth = existsSync(authPath);
-  const hasEnvKey = Boolean(process.env.ANTHROPIC_API_KEY);
   checks.push({
     name: "model auth",
-    status: hasStoredAuth || hasEnvKey ? "ok" : "fail",
-    detail: hasStoredAuth
-      ? `stored credentials at ${authPath}`
-      : hasEnvKey
-        ? "ANTHROPIC_API_KEY from environment"
-        : "no credentials. Run `pi` and use /login, or export ANTHROPIC_API_KEY.",
+    status: availability.available ? "ok" : "fail",
+    detail: availability.available
+      ? `models reachable${existsSync(authPath) ? ` (credentials at ${authPath})` : ""}`
+      : (availability.message ?? "no models available"),
   });
 
   try {
