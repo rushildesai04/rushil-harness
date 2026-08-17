@@ -1,28 +1,41 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { cleanCommand } from "./commands/clean.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { gatesCommand } from "./commands/gates.ts";
+import { pipelineCommand } from "./commands/pipeline.ts";
 import { runCommand } from "./commands/run.ts";
 import { bold, red } from "./ui.ts";
 
 const USAGE = `${bold("mx")} — internal development harness
 
 Usage:
+  mx pipeline "<task>" [--base <ref>] [--no-pr] [--quiet]
+              [--concurrency N] [--rounds N] [--max-cost USD]
   mx run "<task>" [--base <ref>] [--keep] [--quiet]
   mx gates [--worktree <path>]
   mx doctor
+  mx clean
 
 Commands:
+  pipeline  Full multi-agent run: design, parallel implementation, adversarial
+            review of every unit, deterministic integration, and a pull request.
   run       Build a task in an isolated worktree, then verify it against the
             quality gates, repairing up to the configured attempt limit.
             Prints the resulting patch to stdout.
   gates     Run the gates against a working tree with no agent involved.
             Use this to develop config/gates.yaml.
+  clean     Remove harness worktrees left behind by a killed run. Run history
+            is preserved.
   doctor    Check the environment: Node version, pnpm, git, pi runtime,
             model credentials, and config validity.
 
 Options:
   --base <ref>       Base commit or ref for the worktree (default: HEAD)
+  --no-pr            Stop after integration; do not push or open a pull request
+  --concurrency <n>  Implementer+adversary pairs in flight (overrides config)
+  --rounds <n>       Adversarial review rounds per unit (overrides config)
+  --max-cost <usd>   Spend ceiling for this run, checked between phases
   --keep             Keep the worktree even when the run passes
   --quiet            Do not stream agent output
   --worktree <path>  Directory to run gates against (default: repo root)
@@ -42,6 +55,10 @@ async function main(argv: string[]): Promise<number> {
     options: {
       base: { type: "string" },
       keep: { type: "boolean", default: false },
+      "no-pr": { type: "boolean", default: false },
+      concurrency: { type: "string" },
+      rounds: { type: "string" },
+      "max-cost": { type: "string" },
       quiet: { type: "boolean", default: false },
       worktree: { type: "string" },
       repo: { type: "string" },
@@ -51,6 +68,29 @@ async function main(argv: string[]): Promise<number> {
   const repoRoot = values.repo ?? process.cwd();
 
   switch (command) {
+    case "pipeline": {
+      const task = positionals.join(" ").trim();
+      if (!task) {
+        process.stderr.write(`${red("mx pipeline requires a task description")}\n\n${USAGE}`);
+        return 1;
+      }
+      const numeric = (flag: string, raw: string | undefined): number | undefined => {
+        if (raw === undefined) return undefined;
+        const value = Number(raw);
+        if (!Number.isFinite(value)) throw new Error(`--${flag} expects a number, got "${raw}"`);
+        return value;
+      };
+      return pipelineCommand({
+        task,
+        repoRoot,
+        ...(values.base ? { base: values.base } : {}),
+        openPr: values["no-pr"] !== true,
+        quiet: values.quiet === true,
+        ...(values.concurrency ? { concurrency: numeric("concurrency", values.concurrency) } : {}),
+        ...(values.rounds ? { adversaryRounds: numeric("rounds", values.rounds) } : {}),
+        ...(values["max-cost"] ? { maxCostUsd: numeric("max-cost", values["max-cost"]) } : {}),
+      });
+    }
     case "run": {
       const task = positionals.join(" ").trim();
       if (!task) {
@@ -69,6 +109,8 @@ async function main(argv: string[]): Promise<number> {
       return gatesCommand({ repoRoot, ...(values.worktree ? { worktree: values.worktree } : {}) });
     case "doctor":
       return doctorCommand(repoRoot);
+    case "clean":
+      return cleanCommand({ repoRoot });
     default:
       process.stderr.write(`${red(`Unknown command: ${command}`)}\n\n${USAGE}`);
       return 1;

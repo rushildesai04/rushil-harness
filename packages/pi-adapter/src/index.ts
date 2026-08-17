@@ -22,6 +22,11 @@ export {
   resolvePiPackageRoot,
 } from "./client.ts";
 export {
+  checkModelAvailability,
+  type ModelAvailability,
+  missingModelIds,
+} from "./preflight.ts";
+export {
   assertNodeVersion,
   checkNodeVersion,
   type NodeVersionCheck,

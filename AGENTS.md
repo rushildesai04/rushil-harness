@@ -24,7 +24,8 @@ pnpm exec vitest run                 # tests
 | `pi-adapter` | The only place `@earendil-works/*` may be imported. Pins the pi version. |
 | `harness-core` | Config schemas, run store, shared types. No I/O beyond files. |
 | `harness-gates` | Gate execution, output parsers, in-process checks. |
-| `harness-orchestrator` | Worktrees, pi workers, the verify-and-repair loop. |
+| `harness-agents` | Role prompts, structured-output schemas, plan validation. |
+| `harness-orchestrator` | Worktrees, pi workers, repair loop, pipeline, integration, PR. |
 | `harness-cli` | `mx` entry point. |
 
 ## Rules

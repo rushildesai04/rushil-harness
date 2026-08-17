@@ -40,6 +40,72 @@ const ScopeConfig = z.object({
   maxChangedLines: z.number().int().positive().default(4000),
 });
 
+const RoleConfig = z.object({
+  model: ModelConfig.prefault({}),
+  tools: z.array(z.string().min(1)).min(1),
+  /** Wall-clock ceiling for a single turn by this role. */
+  timeoutMs: z.number().int().positive(),
+});
+
+export type RoleConfig = z.infer<typeof RoleConfig>;
+
+/**
+ * Model assignment per role.
+ *
+ * Roles are separated because their failure modes differ. The designer is
+ * reasoning over an unfamiliar codebase and must not be able to edit it. The
+ * adversary needs `bash` — a reviewer that cannot run the code produces
+ * plausible-but-wrong findings — but never `edit` or `write`, and it works in a
+ * throwaway worktree so a shell-based write cannot reach the real change.
+ */
+const RolesConfig = z.object({
+  designer: RoleConfig.prefault({
+    model: { provider: "anthropic", id: "claude-fable-5", thinking: "high" },
+    tools: ["read", "grep", "find", "ls"],
+    timeoutMs: 1_200_000,
+  }),
+  implementer: RoleConfig.prefault({
+    model: { provider: "anthropic", id: "claude-opus-4-8", thinking: "medium" },
+    tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
+    timeoutMs: 1_800_000,
+  }),
+  adversary: RoleConfig.prefault({
+    model: { provider: "anthropic", id: "claude-opus-4-8", thinking: "high" },
+    tools: ["read", "bash", "grep", "find", "ls"],
+    timeoutMs: 1_200_000,
+  }),
+  combiner: RoleConfig.prefault({
+    model: { provider: "anthropic", id: "claude-opus-4-8", thinking: "high" },
+    tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
+    timeoutMs: 1_800_000,
+  }),
+});
+
+const PipelineConfig = z.object({
+  /** Implementer+adversary pairs running at once. */
+  concurrency: z.number().int().min(1).max(16).default(3),
+  /** Adversarial rounds per unit after the first implementation passes gates. */
+  adversaryRounds: z.number().int().min(0).max(5).default(2),
+  /** Work units the designer may emit. A larger plan is a planning failure. */
+  maxUnits: z.number().int().min(1).max(20).default(6),
+  /** Retries when a structured-output agent writes malformed JSON. */
+  structuredRetries: z.number().int().min(0).max(5).default(2),
+  /**
+   * Abort the pipeline between phases once spend crosses this. Zero disables
+   * the ceiling, which is not recommended: this topology fans out by design.
+   */
+  maxCostUsd: z.number().min(0).default(25),
+  /** Unresolved findings at or above this severity block the PR. */
+  blockingSeverity: z.enum(["low", "medium", "high"]).default("high"),
+});
+
+const PullRequestConfig = z.object({
+  baseBranch: z.string().min(1).default("main"),
+  branchPrefix: z.string().min(1).default("harness/"),
+  /** Open the PR as a draft. Recommended while the pipeline earns trust. */
+  draft: z.boolean().default(true),
+});
+
 // `prefault` (not `default`) runs the missing value back through the schema, so
 // an omitted section still picks up each field's own default.
 export const HarnessConfigSchema = z.object({
@@ -47,6 +113,9 @@ export const HarnessConfigSchema = z.object({
   builder: BuilderConfig.prefault({}),
   paths: PathsConfig.prefault({}),
   scope: ScopeConfig.prefault({}),
+  roles: RolesConfig.prefault({}),
+  pipeline: PipelineConfig.prefault({}),
+  pullRequest: PullRequestConfig.prefault({}),
 });
 
 export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;

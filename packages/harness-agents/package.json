@@ -1,5 +1,5 @@
 {
-  "name": "@harness/orchestrator",
+  "name": "@harness/agents",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,6 @@
   "dependencies": {
     "@harness/core": "workspace:*",
     "@harness/gates": "workspace:*",
-    "@harness/pi-adapter": "workspace:*",
-    "@harness/agents": "workspace:*"
+    "zod": "^4.1.12"
   }
 }

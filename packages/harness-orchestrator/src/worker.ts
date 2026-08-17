@@ -1,4 +1,4 @@
-import type { HarnessConfig, RunStore } from "@harness/core";
+import type { RoleConfig, RunStore } from "@harness/core";
 import { createPiSession, type RpcClient } from "@harness/pi-adapter";
 
 /**
@@ -23,12 +23,30 @@ const AUDITED_EVENTS = new Set([
 export interface WorkerOptions {
   agentId: string;
   worktree: string;
-  config: HarnessConfig;
+  /** Model, tool allowlist, and turn timeout for this agent's role. */
+  role: RoleConfig;
   runStore: RunStore;
   /** Streamed assistant text, for CLI progress rendering. */
   onText?: (delta: string) => void;
-  /** Overrides the model from config, e.g. a cheaper tier for repair turns. */
-  model?: { provider: string; id?: string };
+  /** Test-only override of the pi entry point. */
+  cliPath?: string;
+}
+
+/** Ceiling for process start and the first RPC round trip. */
+const STARTUP_TIMEOUT_MS = 60_000;
+
+async function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${message} within ${ms}ms.`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export interface PromptOutcome {
@@ -48,15 +66,15 @@ export class Worker {
   }
 
   async start(): Promise<void> {
-    const { config, worktree, runStore, agentId } = this.options;
-    const model = this.options.model ?? config.model;
+    const { role, worktree, runStore, agentId } = this.options;
 
     const client = createPiSession({
       cwd: worktree,
-      provider: model.provider,
-      ...(model.id ? { model: model.id } : {}),
-      thinking: config.model.thinking,
-      tools: config.builder.tools,
+      provider: role.model.provider,
+      ...(role.model.id ? { model: role.model.id } : {}),
+      thinking: role.model.thinking,
+      tools: role.tools,
+      ...(this.options.cliPath ? { cliPath: this.options.cliPath } : {}),
       sessionPath: runStore.sessionPath(agentId),
       sessionName: `${runStore.runId}/${agentId}`,
       // A task repo must not be able to inject extensions into the agent
@@ -83,13 +101,22 @@ export class Worker {
       });
     });
 
-    await client.start();
+    // A pi process that comes up wedged would otherwise be discovered only when
+    // the first prompt burns the whole turn timeout, so probe it immediately.
+    await withTimeout(client.start(), STARTUP_TIMEOUT_MS, `${agentId}: pi failed to start`);
+    await withTimeout(client.getState(), STARTUP_TIMEOUT_MS, `${agentId}: pi did not respond`);
     // Transient provider errors (429/5xx) are common with subscription auth and
     // concurrent workers; let pi absorb them rather than failing the run.
     await client.setAutoRetry(true);
     this.client = client;
 
-    runStore.emit("worker:start", { agentId, worktree });
+    runStore.emit("worker:start", {
+      agentId,
+      worktree,
+      model: role.model.id ?? "(provider default)",
+      thinking: role.model.thinking,
+      tools: role.tools,
+    });
   }
 
   /** Send a prompt and wait for the agent to fully settle. */
@@ -121,14 +148,15 @@ export class Worker {
     const client = this.client;
     if (!client) return {};
     try {
-      const raw = (await client.getSessionStats()) as unknown as Record<string, unknown>;
-      // Stats field names have moved across pi versions; read defensively so a
-      // rename degrades the cost report instead of failing the run.
-      const usage = (raw.usage ?? raw) as Record<string, unknown>;
+      const raw = await client.getSessionStats();
+      // Read defensively so a field rename in a pi upgrade degrades the cost
+      // report rather than failing the run. `cost` is the one that matters:
+      // the pipeline's budget ceiling is enforced from it.
+      const tokens = (raw as { tokens?: { input?: number; output?: number } }).tokens;
       return {
         costUsd: typeof raw.cost === "number" ? raw.cost : undefined,
-        inputTokens: typeof usage.input === "number" ? usage.input : undefined,
-        outputTokens: typeof usage.output === "number" ? usage.output : undefined,
+        inputTokens: typeof tokens?.input === "number" ? tokens.input : undefined,
+        outputTokens: typeof tokens?.output === "number" ? tokens.output : undefined,
       };
     } catch {
       return {};

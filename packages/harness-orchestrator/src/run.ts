@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { DiffStat, GateResult, GateRunSummary, LoadedConfig, RunRecord } from "@harness/core";
 import { RunStore } from "@harness/core";
 import { runGates } from "@harness/gates";
+import { checkModelAvailability } from "@harness/pi-adapter";
 import { addWorktree, assertCleanRepo, collectDiff, removeWorktree, resolveCommit } from "./git.ts";
 import { buildNoDiffPrompt, buildRepairPrompt, buildTaskPrompt } from "./prompts.ts";
 import { Worker } from "./worker.ts";
@@ -41,6 +42,14 @@ export async function runBuildTask(options: BuildRunOptions): Promise<BuildRunRe
   const baseRef = options.baseRef ?? "HEAD";
 
   await assertCleanRepo(repoRoot);
+
+  // Cheaper to learn this now than after a worktree exists and an agent is
+  // sitting on an unanswerable prompt until its timeout expires.
+  const availability = await checkModelAvailability();
+  if (!availability.available) {
+    throw new Error(availability.message ?? "No models available to the configured credentials.");
+  }
+
   const baseCommit = await resolveCommit(repoRoot, baseRef);
 
   const runId = RunStore.newRunId();
@@ -71,7 +80,11 @@ export async function runBuildTask(options: BuildRunOptions): Promise<BuildRunRe
   const worker = new Worker({
     agentId: "builder",
     worktree,
-    config: harness,
+    role: {
+      model: harness.model,
+      tools: harness.builder.tools,
+      timeoutMs: harness.builder.promptTimeoutMs,
+    },
     runStore,
     ...(options.onText ? { onText: options.onText } : {}),
   });

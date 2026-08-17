@@ -39,3 +39,46 @@ scope:
   # Runaway-diff ceilings. A change this large is a planning failure, not a build.
   maxChangedFiles: 60
   maxChangedLines: 4000
+
+# Model assignment per role. Run `pi --list-models` to confirm ids your
+# credentials can reach; `mx doctor` reports the resolved catalog.
+roles:
+  designer:
+    model: { provider: anthropic, id: claude-fable-5, thinking: high }
+    tools: [read, grep, find, ls]
+    timeoutMs: 1200000
+  implementer:
+    model: { provider: anthropic, id: claude-opus-4-8, thinking: medium }
+    tools: [read, bash, edit, write, grep, find, ls]
+    timeoutMs: 1800000
+  adversary:
+    # bash, but never edit or write: a reviewer that cannot run the code
+    # produces plausible-but-wrong findings, and it works in a throwaway
+    # worktree so nothing it does reaches the change under review.
+    model: { provider: anthropic, id: claude-opus-4-8, thinking: high }
+    tools: [read, bash, grep, find, ls]
+    timeoutMs: 1200000
+  combiner:
+    model: { provider: anthropic, id: claude-opus-4-8, thinking: high }
+    tools: [read, bash, edit, write, grep, find, ls]
+    timeoutMs: 1800000
+
+pipeline:
+  # Implementer+adversary pairs in flight at once. Provider rate limits bind
+  # well before the machine does.
+  concurrency: 3
+  # Review passes per unit. Round 1 reviews; later rounds re-check whether the
+  # implementer's fixes and disputes actually hold.
+  adversaryRounds: 2
+  maxUnits: 6
+  structuredRetries: 2
+  # Checked between phases. This topology fans out by design, so leaving it at
+  # 0 (disabled) is how a run quietly costs hundreds of dollars.
+  maxCostUsd: 25
+  # Unresolved findings at or above this severity block the pull request.
+  blockingSeverity: high
+
+pullRequest:
+  baseBranch: main
+  branchPrefix: "harness/"
+  draft: true

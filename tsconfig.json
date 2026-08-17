@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/pi-adapter" },
+    { "path": "packages/harness-agents" },
     { "path": "packages/harness-core" },
     { "path": "packages/harness-gates" },
     { "path": "packages/harness-orchestrator" },

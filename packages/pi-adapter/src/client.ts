@@ -71,6 +71,11 @@ export interface PiSessionOptions {
   /** Extra env for the child process. */
   env?: Record<string, string>;
   /**
+   * Override the CLI entry point. Exists so tests can substitute a stub that
+   * speaks the RPC protocol; production always resolves the installed pi.
+   */
+  cliPath?: string;
+  /**
    * Skip loading project-local extensions/skills/prompt templates. Default true
    * for harness workers: a task repo must not be able to inject code into the
    * agent that is reviewing it.
@@ -120,7 +125,7 @@ export function createPiSession(options: PiSessionOptions): RpcClient {
   assertNodeVersion();
 
   const clientOptions: RpcClientOptions = {
-    cliPath: resolvePiCliPath(),
+    cliPath: options.cliPath ?? resolvePiCliPath(),
     cwd: options.cwd,
     args: buildArgs(options),
   };

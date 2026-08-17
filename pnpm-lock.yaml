@@ -21,6 +21,18 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(yaml@2.9.0)
 
+  packages/harness-agents:
+    dependencies:
+      '@harness/core':
+        specifier: workspace:*
+        version: link:../harness-core
+      '@harness/gates':
+        specifier: workspace:*
+        version: link:../harness-gates
+      zod:
+        specifier: ^4.1.12
+        version: 4.4.3
+
   packages/harness-cli:
     dependencies:
       '@harness/core':
@@ -60,6 +72,9 @@ importers:
 
   packages/harness-orchestrator:
     dependencies:
+      '@harness/agents':
+        specifier: workspace:*
+        version: link:../harness-agents
       '@harness/core':
         specifier: workspace:*
         version: link:../harness-core
