@@ -113,6 +113,22 @@ async function actOnPrompt(message) {
     return;
   }
 
+  // Single-agent path: `mx run` builds from a task prompt, then repairs.
+  if (message.startsWith("# Task")) {
+    mkdirSync(`${process.cwd()}/src`, { recursive: true });
+    writeFileSync(`${process.cwd()}/src/thing.ts`, "export const thing = true;\n", "utf8");
+    return;
+  }
+
+  if (message.startsWith("# Quality gates failed")) {
+    // STUB_REPAIR=never models an agent that cannot fix what the gates caught,
+    // so the repair budget is what ends the run.
+    if (process.env.STUB_REPAIR !== "never") {
+      writeFileSync(`${process.cwd()}/.fixed`, "", "utf8");
+    }
+    return;
+  }
+
   if (message.startsWith("# Resolve merge conflicts")) {
     for (const file of conflictedFiles(message)) {
       writeFileSync(
