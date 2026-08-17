@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A harness-generated PR asserts that its own gates passed. This workflow
+# re-checks that claim with raw tool invocations rather than by calling `mx
+# gates`, so a defect in the gate runner cannot hide itself: the harness has no
+# influence over the verdict here.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Format and lint
+        run: pnpm exec biome ci .
+
+      - name: Typecheck and build
+        run: pnpm exec tsc -b --pretty false
+
+      - name: Test
+        run: pnpm exec vitest run
+
+      # The harness resolves pi by walking node_modules and pins an exact
+      # version. Both assumptions break silently on a dependency change, so the
+      # contract tests are worth calling out separately in the log.
+      - name: pi runtime contract
+        run: pnpm exec vitest run packages/pi-adapter

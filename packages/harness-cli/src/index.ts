@@ -11,6 +11,7 @@ const USAGE = `${bold("mx")} — internal development harness
 
 Usage:
   mx pipeline "<task>" [--base <ref>] [--no-pr] [--quiet]
+              [--concurrency N] [--rounds N] [--max-cost USD]
   mx run "<task>" [--base <ref>] [--keep] [--quiet]
   mx gates [--worktree <path>]
   mx doctor
@@ -32,6 +33,9 @@ Commands:
 Options:
   --base <ref>       Base commit or ref for the worktree (default: HEAD)
   --no-pr            Stop after integration; do not push or open a pull request
+  --concurrency <n>  Implementer+adversary pairs in flight (overrides config)
+  --rounds <n>       Adversarial review rounds per unit (overrides config)
+  --max-cost <usd>   Spend ceiling for this run, checked between phases
   --keep             Keep the worktree even when the run passes
   --quiet            Do not stream agent output
   --worktree <path>  Directory to run gates against (default: repo root)
@@ -52,6 +56,9 @@ async function main(argv: string[]): Promise<number> {
       base: { type: "string" },
       keep: { type: "boolean", default: false },
       "no-pr": { type: "boolean", default: false },
+      concurrency: { type: "string" },
+      rounds: { type: "string" },
+      "max-cost": { type: "string" },
       quiet: { type: "boolean", default: false },
       worktree: { type: "string" },
       repo: { type: "string" },
@@ -67,12 +74,21 @@ async function main(argv: string[]): Promise<number> {
         process.stderr.write(`${red("mx pipeline requires a task description")}\n\n${USAGE}`);
         return 1;
       }
+      const numeric = (flag: string, raw: string | undefined): number | undefined => {
+        if (raw === undefined) return undefined;
+        const value = Number(raw);
+        if (!Number.isFinite(value)) throw new Error(`--${flag} expects a number, got "${raw}"`);
+        return value;
+      };
       return pipelineCommand({
         task,
         repoRoot,
         ...(values.base ? { base: values.base } : {}),
         openPr: values["no-pr"] !== true,
         quiet: values.quiet === true,
+        ...(values.concurrency ? { concurrency: numeric("concurrency", values.concurrency) } : {}),
+        ...(values.rounds ? { adversaryRounds: numeric("rounds", values.rounds) } : {}),
+        ...(values["max-cost"] ? { maxCostUsd: numeric("max-cost", values["max-cost"]) } : {}),
       });
     }
     case "run": {

@@ -1,4 +1,4 @@
-import { loadConfig } from "@harness/core";
+import { HarnessConfigSchema, type LoadedConfig, loadConfig } from "@harness/core";
 import { runPipeline } from "@harness/orchestrator";
 import { bold, dim, formatGateSummary, green, red, yellow } from "../ui.ts";
 
@@ -8,10 +8,48 @@ export interface PipelineArgs {
   base?: string;
   openPr: boolean;
   quiet: boolean;
+  /** Per-run overrides so a cautious first run needs no config edit. */
+  concurrency?: number;
+  adversaryRounds?: number;
+  maxCostUsd?: number;
+}
+
+/**
+ * Apply per-run overrides by re-parsing the whole config.
+ *
+ * Re-parsing rather than assigning keeps every range constraint in one place —
+ * `--concurrency 99` fails with the same message a bad harness.yaml would give.
+ */
+/** Map a config field back to the flag the user actually typed. */
+function flagFor(field: string): string {
+  if (field === "adversaryRounds") return "rounds";
+  if (field === "maxCostUsd") return "max-cost";
+  return field;
+}
+
+function withOverrides(loaded: LoadedConfig, args: PipelineArgs): LoadedConfig {
+  const overrides: Record<string, number> = {};
+  if (args.concurrency !== undefined) overrides.concurrency = args.concurrency;
+  if (args.adversaryRounds !== undefined) overrides.adversaryRounds = args.adversaryRounds;
+  if (args.maxCostUsd !== undefined) overrides.maxCostUsd = args.maxCostUsd;
+  if (Object.keys(overrides).length === 0) return loaded;
+
+  const parsed = HarnessConfigSchema.safeParse({
+    ...loaded.harness,
+    pipeline: { ...loaded.harness.pipeline, ...overrides },
+  });
+  if (!parsed.success) {
+    // A raw ZodError dump for a mistyped flag is not an error message.
+    const detail = parsed.error.issues
+      .map((issue) => `--${flagFor(String(issue.path.at(-1) ?? ""))}: ${issue.message}`)
+      .join("\n");
+    throw new Error(`Invalid option:\n${detail}`);
+  }
+  return { ...loaded, harness: parsed.data };
 }
 
 export async function pipelineCommand(args: PipelineArgs): Promise<number> {
-  const loaded = loadConfig(args.repoRoot);
+  const loaded = withOverrides(loadConfig(args.repoRoot), args);
   const { roles, pipeline } = loaded.harness;
 
   process.stderr.write(`${bold("task")}       ${args.task}\n`);
