@@ -28,6 +28,8 @@ export interface WorkerOptions {
   runStore: RunStore;
   /** Streamed assistant text, for CLI progress rendering. */
   onText?: (delta: string) => void;
+  /** Test-only override of the pi entry point. */
+  cliPath?: string;
 }
 
 /** Ceiling for process start and the first RPC round trip. */
@@ -72,6 +74,7 @@ export class Worker {
       ...(role.model.id ? { model: role.model.id } : {}),
       thinking: role.model.thinking,
       tools: role.tools,
+      ...(this.options.cliPath ? { cliPath: this.options.cliPath } : {}),
       sessionPath: runStore.sessionPath(agentId),
       sessionName: `${runStore.runId}/${agentId}`,
       // A task repo must not be able to inject extensions into the agent
