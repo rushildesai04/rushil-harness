@@ -2,17 +2,21 @@
 import { parseArgs } from "node:util";
 import { doctorCommand } from "./commands/doctor.ts";
 import { gatesCommand } from "./commands/gates.ts";
+import { pipelineCommand } from "./commands/pipeline.ts";
 import { runCommand } from "./commands/run.ts";
 import { bold, red } from "./ui.ts";
 
 const USAGE = `${bold("mx")} — internal development harness
 
 Usage:
+  mx pipeline "<task>" [--base <ref>] [--no-pr] [--quiet]
   mx run "<task>" [--base <ref>] [--keep] [--quiet]
   mx gates [--worktree <path>]
   mx doctor
 
 Commands:
+  pipeline  Full multi-agent run: design, parallel implementation, adversarial
+            review of every unit, deterministic integration, and a pull request.
   run       Build a task in an isolated worktree, then verify it against the
             quality gates, repairing up to the configured attempt limit.
             Prints the resulting patch to stdout.
@@ -23,6 +27,7 @@ Commands:
 
 Options:
   --base <ref>       Base commit or ref for the worktree (default: HEAD)
+  --no-pr            Stop after integration; do not push or open a pull request
   --keep             Keep the worktree even when the run passes
   --quiet            Do not stream agent output
   --worktree <path>  Directory to run gates against (default: repo root)
@@ -42,6 +47,7 @@ async function main(argv: string[]): Promise<number> {
     options: {
       base: { type: "string" },
       keep: { type: "boolean", default: false },
+      "no-pr": { type: "boolean", default: false },
       quiet: { type: "boolean", default: false },
       worktree: { type: "string" },
       repo: { type: "string" },
@@ -51,6 +57,20 @@ async function main(argv: string[]): Promise<number> {
   const repoRoot = values.repo ?? process.cwd();
 
   switch (command) {
+    case "pipeline": {
+      const task = positionals.join(" ").trim();
+      if (!task) {
+        process.stderr.write(`${red("mx pipeline requires a task description")}\n\n${USAGE}`);
+        return 1;
+      }
+      return pipelineCommand({
+        task,
+        repoRoot,
+        ...(values.base ? { base: values.base } : {}),
+        openPr: values["no-pr"] !== true,
+        quiet: values.quiet === true,
+      });
+    }
     case "run": {
       const task = positionals.join(" ").trim();
       if (!task) {

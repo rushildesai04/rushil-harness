@@ -5,5 +5,10 @@
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../harness-core" }, { "path": "../harness-gates" }, { "path": "../pi-adapter" }]
+  "references": [
+    { "path": "../harness-agents" },
+    { "path": "../harness-core" },
+    { "path": "../harness-gates" },
+    { "path": "../pi-adapter" }
+  ]
 }

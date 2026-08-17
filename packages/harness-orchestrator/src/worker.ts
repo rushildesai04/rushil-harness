@@ -1,4 +1,4 @@
-import type { HarnessConfig, RunStore } from "@harness/core";
+import type { RoleConfig, RunStore } from "@harness/core";
 import { createPiSession, type RpcClient } from "@harness/pi-adapter";
 
 /**
@@ -23,12 +23,11 @@ const AUDITED_EVENTS = new Set([
 export interface WorkerOptions {
   agentId: string;
   worktree: string;
-  config: HarnessConfig;
+  /** Model, tool allowlist, and turn timeout for this agent's role. */
+  role: RoleConfig;
   runStore: RunStore;
   /** Streamed assistant text, for CLI progress rendering. */
   onText?: (delta: string) => void;
-  /** Overrides the model from config, e.g. a cheaper tier for repair turns. */
-  model?: { provider: string; id?: string };
 }
 
 export interface PromptOutcome {
@@ -48,15 +47,14 @@ export class Worker {
   }
 
   async start(): Promise<void> {
-    const { config, worktree, runStore, agentId } = this.options;
-    const model = this.options.model ?? config.model;
+    const { role, worktree, runStore, agentId } = this.options;
 
     const client = createPiSession({
       cwd: worktree,
-      provider: model.provider,
-      ...(model.id ? { model: model.id } : {}),
-      thinking: config.model.thinking,
-      tools: config.builder.tools,
+      provider: role.model.provider,
+      ...(role.model.id ? { model: role.model.id } : {}),
+      thinking: role.model.thinking,
+      tools: role.tools,
       sessionPath: runStore.sessionPath(agentId),
       sessionName: `${runStore.runId}/${agentId}`,
       // A task repo must not be able to inject extensions into the agent
@@ -89,7 +87,13 @@ export class Worker {
     await client.setAutoRetry(true);
     this.client = client;
 
-    runStore.emit("worker:start", { agentId, worktree });
+    runStore.emit("worker:start", {
+      agentId,
+      worktree,
+      model: role.model.id ?? "(provider default)",
+      thinking: role.model.thinking,
+      tools: role.tools,
+    });
   }
 
   /** Send a prompt and wait for the agent to fully settle. */

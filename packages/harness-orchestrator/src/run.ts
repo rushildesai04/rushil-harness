@@ -71,7 +71,11 @@ export async function runBuildTask(options: BuildRunOptions): Promise<BuildRunRe
   const worker = new Worker({
     agentId: "builder",
     worktree,
-    config: harness,
+    role: {
+      model: harness.model,
+      tools: harness.builder.tools,
+      timeoutMs: harness.builder.promptTimeoutMs,
+    },
     runStore,
     ...(options.onText ? { onText: options.onText } : {}),
   });

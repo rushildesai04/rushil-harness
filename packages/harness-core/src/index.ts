@@ -6,6 +6,7 @@ export {
   HarnessConfigSchema,
   type LoadedConfig,
   loadConfig,
+  type RoleConfig,
 } from "./config.ts";
 export { globMatcher, matchesAny } from "./glob.ts";
 export { RunStore } from "./run-store.ts";
