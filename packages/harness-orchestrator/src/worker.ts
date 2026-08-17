@@ -145,14 +145,15 @@ export class Worker {
     const client = this.client;
     if (!client) return {};
     try {
-      const raw = (await client.getSessionStats()) as unknown as Record<string, unknown>;
-      // Stats field names have moved across pi versions; read defensively so a
-      // rename degrades the cost report instead of failing the run.
-      const usage = (raw.usage ?? raw) as Record<string, unknown>;
+      const raw = await client.getSessionStats();
+      // Read defensively so a field rename in a pi upgrade degrades the cost
+      // report rather than failing the run. `cost` is the one that matters:
+      // the pipeline's budget ceiling is enforced from it.
+      const tokens = (raw as { tokens?: { input?: number; output?: number } }).tokens;
       return {
         costUsd: typeof raw.cost === "number" ? raw.cost : undefined,
-        inputTokens: typeof usage.input === "number" ? usage.input : undefined,
-        outputTokens: typeof usage.output === "number" ? usage.output : undefined,
+        inputTokens: typeof tokens?.input === "number" ? tokens.input : undefined,
+        outputTokens: typeof tokens?.output === "number" ? tokens.output : undefined,
       };
     } catch {
       return {};
