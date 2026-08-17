@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -215,4 +215,31 @@ export async function diffRange(repoRoot: string, from: string, to: string): Pro
   const patch = await git(repoRoot, ["diff", "--no-color", "-U3", `${from}..${to}`]);
   if (Buffer.byteLength(patch, "utf8") <= MAX_PATCH_BYTES) return patch;
   return `${patch.slice(0, MAX_PATCH_BYTES)}\n... patch truncated at ${MAX_PATCH_BYTES} bytes ...\n`;
+}
+
+/**
+ * Remove harness worktrees left behind by a killed run.
+ *
+ * A run that is SIGKILLed never reaches its own cleanup, so git keeps
+ * administrative entries pointing at directories that may no longer exist.
+ * Recovery has to be a separate command rather than a finally block.
+ */
+export async function listWorktrees(repoRoot: string): Promise<string[]> {
+  const out = await git(repoRoot, ["worktree", "list", "--porcelain"]).catch(() => "");
+  return out
+    .split("\n")
+    .filter((line) => line.startsWith("worktree "))
+    .map((line) => line.slice("worktree ".length).trim())
+    .filter(Boolean);
+}
+
+export async function pruneWorktrees(repoRoot: string, under: string): Promise<string[]> {
+  const removed: string[] = [];
+  for (const worktree of await listWorktrees(repoRoot)) {
+    if (!worktree.startsWith(under)) continue;
+    await removeWorktree(repoRoot, worktree);
+    removed.push(worktree);
+  }
+  await git(repoRoot, ["worktree", "prune"]).catch(() => undefined);
+  return removed;
 }

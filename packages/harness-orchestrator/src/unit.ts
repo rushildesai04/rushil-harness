@@ -263,7 +263,7 @@ async function runAdversary(
     const base = adversaryPrompt(unit, plan, patch, round);
     // A later round is a re-review: the adversary must judge whether its own
     // prior findings are genuinely resolved, not re-derive them from scratch.
-    const prompt = previous ? `${base}\n\n${recheckPrompt(previous, patch, round)}` : base;
+    const prompt = previous ? `${base}\n\n${recheckPrompt(previous, round)}` : base;
 
     return await runStructured<Review>({
       worker: adversary,

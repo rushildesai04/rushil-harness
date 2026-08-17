@@ -173,7 +173,9 @@ Fix what is real, then record one entry per finding id. The gates run again
 after you stop, so a fix that breaks something else will come straight back.`;
 }
 
-export function recheckPrompt(review: Review, patch: string, round: number): string {
+// No patch parameter: a re-review is about the code as it now stands in the
+// worktree, and handing back the original diff invites re-litigating it.
+export function recheckPrompt(review: Review, round: number): string {
   const disputed = review.findings.filter((f) => f.severity !== "low");
   return `# Re-review (round ${round})
 

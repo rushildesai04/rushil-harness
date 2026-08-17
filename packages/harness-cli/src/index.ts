@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { cleanCommand } from "./commands/clean.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { gatesCommand } from "./commands/gates.ts";
 import { pipelineCommand } from "./commands/pipeline.ts";
@@ -13,6 +14,7 @@ Usage:
   mx run "<task>" [--base <ref>] [--keep] [--quiet]
   mx gates [--worktree <path>]
   mx doctor
+  mx clean
 
 Commands:
   pipeline  Full multi-agent run: design, parallel implementation, adversarial
@@ -22,6 +24,8 @@ Commands:
             Prints the resulting patch to stdout.
   gates     Run the gates against a working tree with no agent involved.
             Use this to develop config/gates.yaml.
+  clean     Remove harness worktrees left behind by a killed run. Run history
+            is preserved.
   doctor    Check the environment: Node version, pnpm, git, pi runtime,
             model credentials, and config validity.
 
@@ -89,6 +93,8 @@ async function main(argv: string[]): Promise<number> {
       return gatesCommand({ repoRoot, ...(values.worktree ? { worktree: values.worktree } : {}) });
     case "doctor":
       return doctorCommand(repoRoot);
+    case "clean":
+      return cleanCommand({ repoRoot });
     default:
       process.stderr.write(`${red(`Unknown command: ${command}`)}\n\n${USAGE}`);
       return 1;
