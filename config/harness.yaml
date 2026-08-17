@@ -1,0 +1,41 @@
+# Harness runtime configuration. Validated at load; unknown keys are rejected.
+
+model:
+  provider: anthropic
+  # Leave `id` unset to use whatever pi resolves as the default for the provider.
+  # Run `pi --list-models` to see exact ids available to your credentials, then
+  # pin one here so runs are reproducible.
+  # id: claude-opus-5
+  thinking: medium
+
+builder:
+  # Tool allowlist handed to pi. Anything absent is unavailable to the agent.
+  tools: [read, bash, edit, write, grep, find, ls]
+  # Wall-clock ceiling for a single agent turn before the run is abandoned.
+  promptTimeoutMs: 900000
+  # Repair rounds after the first build attempt. Beyond ~3 the returns flatten
+  # and the spend does not.
+  maxRepairAttempts: 3
+  # Parallel builders. Keep low on subscription auth — concurrent workers hit
+  # rate limits well before they saturate the machine.
+  concurrency: 3
+
+paths:
+  worktrees: .harness/worktrees
+  runs: .harness/runs
+
+scope:
+  # Agents may never modify these. Enforced on the diff, not by trusting the agent.
+  protectedPaths:
+    - ".harness/**"
+    - ".github/workflows/**"
+    - "config/gates.yaml"
+    - "config/harness.yaml"
+  # Touched-but-allowed paths that get flagged in the run record.
+  sensitivePaths:
+    - "pnpm-lock.yaml"
+    - "package.json"
+    - "packages/*/package.json"
+  # Runaway-diff ceilings. A change this large is a planning failure, not a build.
+  maxChangedFiles: 60
+  maxChangedLines: 4000

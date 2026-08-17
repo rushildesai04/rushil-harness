@@ -1,0 +1,5 @@
+packages:
+  - "packages/*"
+
+# Keep the pi runtime resolvable from a single place. Every package that needs
+# it must depend on @harness/pi-adapter, never on @earendil-works/* directly.

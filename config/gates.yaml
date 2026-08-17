@@ -1,0 +1,113 @@
+# Quality gates — the deterministic half of the harness.
+#
+# Tiers run in ascending order. Every gate in a tier completes before the next
+# tier starts, and a blocking failure short-circuits everything after it. Order
+# is by cost: in-process checks, then install, then static analysis, then tests.
+#
+# Read-only gates in the same tier run concurrently. A gate with `mutates: true`
+# forces its whole tier to run sequentially.
+
+defaults:
+  timeoutMs: 600000
+
+gates:
+  # ── Tier 0 — in-process, microseconds, no shell ───────────────────────────
+  # These run first because they catch the failure modes that make every later
+  # gate lie: an agent that cannot fix a test can skip it, and an agent that
+  # cannot satisfy the typechecker can silence it.
+
+  - id: diff-scope
+    label: Diff scope
+    kind: builtin
+    tier: 0
+    # Only meaningful against an agent's diff — `mx gates` skips it.
+    agentOnly: true
+
+  - id: secret-scan
+    label: Secret scan
+    kind: builtin
+    tier: 0
+
+  - id: no-skipped-tests
+    label: No disabled tests
+    kind: builtin
+    tier: 0
+
+  - id: no-suppressions
+    label: No diagnostic suppressions
+    kind: builtin
+    tier: 0
+
+  - id: change-coverage
+    label: Source changes have tests
+    kind: builtin
+    tier: 0
+    blocking: false
+
+  # ── Tier 1 — dependency state ─────────────────────────────────────────────
+  # A fresh worktree has no node_modules, so this also primes the tree for
+  # every gate below. pnpm's content-addressable store makes repeat installs
+  # cheap; the first one in a new worktree is the slow case.
+
+  - id: install
+    label: pnpm install (frozen lockfile)
+    tier: 1
+    command: pnpm install --frozen-lockfile --prefer-offline
+    timeoutMs: 600000
+    mutates: true
+    parser: pnpm-install
+
+  # ── Tier 2 — static analysis, concurrent ──────────────────────────────────
+
+  - id: lint
+    label: Biome (format + lint)
+    tier: 2
+    command: pnpm exec biome ci .
+    timeoutMs: 180000
+    parser: biome
+
+  - id: typecheck
+    label: TypeScript project build
+    tier: 2
+    command: pnpm exec tsc -b --pretty false
+    timeoutMs: 300000
+    parser: tsc
+
+  # ── Tier 3 — unit tests ───────────────────────────────────────────────────
+
+  - id: test-unit
+    label: Unit tests
+    tier: 3
+    command: pnpm exec vitest run --passWithNoTests --reporter=default
+    timeoutMs: 600000
+    parser: vitest
+
+  # ── Tier 4 — supply chain, advisory ───────────────────────────────────────
+  # Only runs when dependencies actually changed, and never blocks a run: audit
+  # results move when upstream advisories publish, which has nothing to do with
+  # the change under test.
+
+  - id: audit
+    label: Dependency audit
+    tier: 4
+    command: pnpm audit --audit-level=high
+    timeoutMs: 180000
+    blocking: false
+    when:
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "packages/*/package.json"
+
+  # ── Templates for when the target repo has them ───────────────────────────
+  #
+  # - id: test-integration
+  #   label: Integration tests
+  #   tier: 5
+  #   command: pnpm run test:integration
+  #   timeoutMs: 1800000
+  #
+  # - id: deadcode
+  #   label: Unused exports
+  #   tier: 2
+  #   command: pnpm exec knip --no-exit-code
+  #   blocking: false

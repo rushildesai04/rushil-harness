@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# Harness runtime state — runs are large and disposable, worktrees are scratch.
+.harness/worktrees/
+.harness/runs/
+
+# Never commit resolved credentials.
+.env
+.env.*
+auth.json
