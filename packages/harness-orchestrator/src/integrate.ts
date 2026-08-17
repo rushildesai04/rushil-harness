@@ -20,6 +20,8 @@ export interface IntegrationInput {
   /** Units that reached a green commit, in the order they should be merged. */
   merges: Array<{ unit: WorkUnit; commit: string }>;
   onPhase: (phase: string, detail?: string) => void;
+  /** Test-only override of the pi entry point. */
+  cliPath?: string;
 }
 
 export interface IntegrationResult {
@@ -150,6 +152,7 @@ async function startCombiner(input: IntegrationInput, worktree: string): Promise
     worktree,
     role: input.loaded.harness.roles.combiner,
     runStore: input.runStore,
+    ...(input.cliPath ? { cliPath: input.cliPath } : {}),
   });
   await worker.start();
   return worker;

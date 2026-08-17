@@ -34,6 +34,8 @@ export interface PipelineOptions {
   openPr: boolean;
   onPhase?: (phase: string, detail?: string) => void;
   onText?: (delta: string) => void;
+  /** Test-only override of the pi entry point, threaded to every role. */
+  cliPath?: string;
 }
 
 export interface PipelineResult {
@@ -143,6 +145,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
             runStore,
             baseCommit,
             plan: design.plan,
+            ...(options.cliPath ? { cliPath: options.cliPath } : {}),
             onPhase: (unitId, phase, detail) => onPhase(`${unitId}:${phase}`, detail),
           },
           unit,
@@ -183,6 +186,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
       runStore,
       baseCommit,
       merges,
+      ...(options.cliPath ? { cliPath: options.cliPath } : {}),
       onPhase: (phase, detail) => onPhase(`integrate:${phase}`, detail),
     });
     result.integration = integration;
@@ -286,6 +290,7 @@ async function runDesign(
     worktree: tree,
     role: { ...harness.roles.designer, tools: [...harness.roles.designer.tools, "write"] },
     runStore,
+    ...(options.cliPath ? { cliPath: options.cliPath } : {}),
     ...(options.onText ? { onText: options.onText } : {}),
   });
 

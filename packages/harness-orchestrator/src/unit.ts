@@ -32,6 +32,8 @@ export interface UnitContext {
   baseCommit: string;
   plan: Plan;
   onPhase: (unitId: string, phase: string, detail?: string) => void;
+  /** Test-only override of the pi entry point. */
+  cliPath?: string;
 }
 
 export interface UnitResult {
@@ -83,6 +85,7 @@ export async function runUnit(ctx: UnitContext, unit: WorkUnit): Promise<UnitRes
     worktree: implTree,
     role: harness.roles.implementer,
     runStore,
+    ...(ctx.cliPath ? { cliPath: ctx.cliPath } : {}),
   });
 
   try {
@@ -255,6 +258,7 @@ async function runAdversary(
     worktree: tree,
     role: harness.roles.adversary,
     runStore,
+    ...(ctx.cliPath ? { cliPath: ctx.cliPath } : {}),
   });
 
   try {
