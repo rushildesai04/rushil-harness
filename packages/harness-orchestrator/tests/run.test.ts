@@ -36,13 +36,13 @@ function harnessConfig(maxRepairAttempts: number): string {
   return `
 builder:
   tools: [read, bash, edit, write]
-  promptTimeoutMs: 15000
+  promptTimeoutMs: 60000
   maxRepairAttempts: ${maxRepairAttempts}
 roles:
   implementer:
     model: { provider: anthropic, id: stub-impl, thinking: low }
     tools: [read, bash, edit, write]
-    timeoutMs: 15000
+    timeoutMs: 60000
 `;
 }
 

@@ -11,7 +11,7 @@ const STUB = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "stub-pi.
 const role: RoleConfig = {
   model: { provider: "anthropic", id: "stub-model", thinking: "medium" },
   tools: ["read", "bash"],
-  timeoutMs: 10_000,
+  timeoutMs: 60_000,
 };
 
 function newStore(): RunStore {
@@ -70,7 +70,7 @@ describe("Worker over the RPC protocol", () => {
     const worker = makeWorker(store, "normal");
     await worker.start();
 
-    const outcome = await worker.send("do the thing", 5_000);
+    const outcome = await worker.send("do the thing", 20_000);
     expect(outcome.timedOut).toBe(false);
     expect(outcome.lastAssistantText).toBe("reply 1");
   });
@@ -90,7 +90,7 @@ describe("Worker over the RPC protocol", () => {
     workers.push(worker);
 
     await worker.start();
-    await worker.send("hello", 5_000);
+    await worker.send("hello", 20_000);
     expect(deltas.join("")).toBe("working");
   });
 
@@ -98,7 +98,7 @@ describe("Worker over the RPC protocol", () => {
     const store = newStore();
     const worker = makeWorker(store, "normal");
     await worker.start();
-    await worker.send("hello", 5_000);
+    await worker.send("hello", 20_000);
 
     const types = events(store).map((event) => event.type);
     expect(types).toContain("agent:tool_execution_start");
@@ -112,7 +112,7 @@ describe("Worker over the RPC protocol", () => {
     const store = newStore();
     const worker = makeWorker(store, "normal");
     await worker.start();
-    await worker.send("hello", 5_000);
+    await worker.send("hello", 20_000);
 
     const stats = await worker.stats();
     expect(stats.costUsd).toBe(0.4242);

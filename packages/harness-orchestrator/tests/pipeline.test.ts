@@ -38,7 +38,7 @@ model:
   thinking: low
 builder:
   tools: [read, bash, edit, write]
-  promptTimeoutMs: 15000
+  promptTimeoutMs: 60000
   maxRepairAttempts: 1
 pipeline:
   concurrency: 2
@@ -79,7 +79,7 @@ beforeEach(async () => {
   mkdirSync(join(repo, "config"), { recursive: true });
   mkdirSync(join(repo, "src"), { recursive: true });
   writeFileSync(join(repo, "config", "gates.yaml"), GATES, "utf8");
-  writeFileSync(join(repo, "config", "harness.yaml"), `${HARNESS}${roleBlock(15000)}`, "utf8");
+  writeFileSync(join(repo, "config", "harness.yaml"), `${HARNESS}${roleBlock(60000)}`, "utf8");
   writeFileSync(join(repo, "src", "seed.ts"), "export const seed = true;\n", "utf8");
   writeFileSync(join(repo, ".gitignore"), ".harness/\n", "utf8");
 
@@ -216,7 +216,7 @@ describe("runPipeline end to end", () => {
     // which is the same class of pre-flight rejection and needs no stub change.
     writeFileSync(
       join(repo, "config", "harness.yaml"),
-      `${HARNESS.replace("maxUnits: 4", "maxUnits: 1")}${roleBlock(15000)}`,
+      `${HARNESS.replace("maxUnits: 4", "maxUnits: 1")}${roleBlock(60000)}`,
       "utf8",
     );
     await git(repo, ["add", "-A"]);

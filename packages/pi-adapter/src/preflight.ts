@@ -23,7 +23,11 @@ export interface ModelAvailability {
  */
 export async function checkModelAvailability(timeoutMs = 60_000): Promise<ModelAvailability> {
   try {
-    const { stdout, stderr } = await execFileAsync("node", [resolvePiCliPath(), "--list-models"], {
+    // `--offline` skips the catalog refresh. The bundled catalog is enough to
+    // answer "can these credentials reach a model", and a preflight that can
+    // block on a network call defeats the point of failing fast.
+    const args = [resolvePiCliPath(), "--list-models", "--offline"];
+    const { stdout, stderr } = await execFileAsync("node", args, {
       encoding: "utf8",
       timeout: timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
