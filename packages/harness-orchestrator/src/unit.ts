@@ -32,6 +32,12 @@ export interface UnitContext {
   baseCommit: string;
   plan: Plan;
   onPhase: (unitId: string, phase: string, detail?: string) => void;
+  /** Reports this unit's spend as soon as it is known, for live budgeting. */
+  onSpend?: (costUsd: number) => void;
+  /** Returns a reason to skip, letting the ceiling bite mid-wave. */
+  budgetExceeded?: () => string | null;
+  /** Test-only override of the pi entry point. */
+  cliPath?: string;
 }
 
 export interface UnitResult {
@@ -74,6 +80,13 @@ export async function runUnit(ctx: UnitContext, unit: WorkUnit): Promise<UnitRes
     costUsd: 0,
   };
 
+  const overBudget = ctx.budgetExceeded?.();
+  if (overBudget) {
+    result.reason = overBudget;
+    runStore.emit("unit:skipped", { unitId: unit.id, reason: overBudget });
+    return result;
+  }
+
   runStore.emit("unit:start", { unitId: unit.id, files: unit.files });
   await addWorktree(repoRoot, implTree, baseCommit);
   await excludeHarnessOutput(implTree);
@@ -83,6 +96,7 @@ export async function runUnit(ctx: UnitContext, unit: WorkUnit): Promise<UnitRes
     worktree: implTree,
     role: harness.roles.implementer,
     runStore,
+    ...(ctx.cliPath ? { cliPath: ctx.cliPath } : {}),
   });
 
   try {
@@ -104,7 +118,9 @@ export async function runUnit(ctx: UnitContext, unit: WorkUnit): Promise<UnitRes
 
     for (let round = 1; round <= harness.pipeline.adversaryRounds; round++) {
       ctx.onPhase(unit.id, "review", `round ${round}`);
-      const review = await runAdversary(ctx, unit, round, result.commit, result.reviews.at(-1));
+      const adversary = await runAdversary(ctx, unit, round, result.commit, result.reviews.at(-1));
+      const review = adversary.review;
+      result.costUsd += adversary.costUsd;
       result.reviews.push(review);
       runStore.emit("unit:review", {
         unitId: unit.id,
@@ -159,11 +175,13 @@ export async function runUnit(ctx: UnitContext, unit: WorkUnit): Promise<UnitRes
     const stats = await implementer.stats();
     result.costUsd += stats.costUsd ?? 0;
     await implementer.stop();
+    ctx.onSpend?.(result.costUsd);
     runStore.emit("unit:end", {
       unitId: unit.id,
       status: result.status,
       commit: result.commit,
       unresolved: result.unresolved.length,
+      costUsd: result.costUsd,
     });
   }
 }
@@ -242,7 +260,7 @@ async function runAdversary(
   round: number,
   commit: string,
   previous: Review | undefined,
-): Promise<Review> {
+): Promise<{ review: Review; costUsd: number }> {
   const { loaded, runStore, baseCommit, plan } = ctx;
   const { repoRoot, harness } = loaded;
   const tree = resolve(repoRoot, harness.paths.worktrees, runStore.runId, unit.id, `adversary-${round}`);
@@ -255,6 +273,7 @@ async function runAdversary(
     worktree: tree,
     role: harness.roles.adversary,
     runStore,
+    ...(ctx.cliPath ? { cliPath: ctx.cliPath } : {}),
   });
 
   try {
@@ -265,7 +284,7 @@ async function runAdversary(
     // prior findings are genuinely resolved, not re-derive them from scratch.
     const prompt = previous ? `${base}\n\n${recheckPrompt(previous, round)}` : base;
 
-    return await runStructured<Review>({
+    const review = await runStructured<Review>({
       worker: adversary,
       worktree: tree,
       outputFile: "review.json",
@@ -274,6 +293,10 @@ async function runAdversary(
       timeoutMs: harness.roles.adversary.timeoutMs,
       retries: harness.pipeline.structuredRetries,
     });
+    // Read before stop(): the session is gone once the process exits, and an
+    // adversary per round is roughly half this pipeline's spend.
+    const costUsd = (await adversary.stats()).costUsd ?? 0;
+    return { review, costUsd };
   } finally {
     await adversary.stop();
     // The adversary's tree is disposable by design; nothing it wrote survives.

@@ -27,6 +27,145 @@ const respond = (request, data) =>
 
 let promptCount = 0;
 
+/**
+ * Role-play the pipeline.
+ *
+ * The stub identifies its role from markers in the prompt rather than from a
+ * flag, which means the pipeline's real prompts are what drive it. A prompt
+ * rewrite that drops a marker breaks these tests, which is the intent: the
+ * prompts are load-bearing.
+ */
+const OUT = `${process.cwd()}/.harness-out`;
+
+const writeArtifact = async (name, value) => {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(`${OUT}/${name}`, JSON.stringify(value, null, 2), "utf8");
+};
+
+/** Pull the backticked paths out of a named section of the prompt. */
+const pathsUnder = (message, heading) => {
+  // One-or-more newlines: "## Files this unit owns" is followed by a blank
+  // line, "Conflicted files:" is not.
+  const section = new RegExp(`${heading}\\n+([\\s\\S]*?)\\n\\n`).exec(message);
+  if (!section) return [];
+  return [...(section[1] ?? "").matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+};
+
+const ownedFiles = (message) => pathsUnder(message, "## Files this unit owns");
+const conflictedFiles = (message) => pathsUnder(message, "Conflicted files:");
+
+const PLAN = {
+  summary: "Stub plan: two independent units.",
+  constraints: ["Do not modify the other unit's files."],
+  risks: ["The units might both need shared config."],
+  units: [
+    {
+      id: "alpha",
+      title: "Alpha unit",
+      brief: "Create the alpha module.",
+      files: ["src/alpha.ts"],
+      dependsOn: [],
+      acceptance: ["src/alpha.ts exports alpha"],
+    },
+    {
+      id: "beta",
+      title: "Beta unit",
+      brief: "Create the beta module.",
+      files: ["src/beta.ts"],
+      dependsOn: [],
+      acceptance: ["src/beta.ts exports beta"],
+    },
+  ],
+};
+
+async function actOnPrompt(message) {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+
+  // Anchored to the start of the prompt, not merely contained in it. The
+  // implement prompt has a "## Design constraints" heading, so a substring
+  // check on "# Design" makes every implementer write a plan instead of code.
+  if (message.startsWith("# Adversarial review found")) {
+    await writeArtifact("response-1.json", {
+      rebuttals: [{ findingId: "f1", action: "disputed", explanation: "Stub disputes this." }],
+    });
+    return;
+  }
+
+  if (message.startsWith("# Design")) {
+    await writeArtifact("plan.json", PLAN);
+    return;
+  }
+
+  if (message.startsWith("# Implement:")) {
+    const files = ownedFiles(message);
+    for (const file of files) {
+      const name = file.split("/").pop()?.replace(/\.ts$/, "") ?? "mod";
+      mkdirSync(`${process.cwd()}/${file}`.replace(/\/[^/]+$/, ""), { recursive: true });
+      writeFileSync(`${process.cwd()}/${file}`, `export const ${name} = true;\n`, "utf8");
+    }
+    // Deliberately overstep into a shared file so the units collide at merge
+    // time and the combiner has something real to resolve.
+    if (process.env.STUB_CONFLICT) {
+      const owner = files[0]?.includes("alpha") ? "alpha" : "beta";
+      writeFileSync(`${process.cwd()}/src/shared.ts`, `export const shared = "${owner}";\n`, "utf8");
+    }
+    return;
+  }
+
+  // Single-agent path: `mx run` builds from a task prompt, then repairs.
+  if (message.startsWith("# Task")) {
+    mkdirSync(`${process.cwd()}/src`, { recursive: true });
+    writeFileSync(`${process.cwd()}/src/thing.ts`, "export const thing = true;\n", "utf8");
+    return;
+  }
+
+  if (message.startsWith("# Quality gates failed")) {
+    // STUB_REPAIR=never models an agent that cannot fix what the gates caught,
+    // so the repair budget is what ends the run.
+    if (process.env.STUB_REPAIR !== "never") {
+      writeFileSync(`${process.cwd()}/.fixed`, "", "utf8");
+    }
+    return;
+  }
+
+  if (message.startsWith("# Resolve merge conflicts")) {
+    for (const file of conflictedFiles(message)) {
+      writeFileSync(
+        `${process.cwd()}/${file}`,
+        'export const shared = "alpha+beta";\n',
+        "utf8",
+      );
+    }
+    return;
+  }
+
+  if (message.startsWith("# Adversarial review")) {
+    const finding = process.env.STUB_FINDING;
+    await writeArtifact(
+      "review.json",
+      finding
+        ? {
+            approved: false,
+            coverage: ["ran the module", "read the diff"],
+            findings: [
+              {
+                id: "f1",
+                severity: finding,
+                file: "src/alpha.ts",
+                claim: "Stub finding for testing.",
+                reproduction: "Import the module and call it with no arguments.",
+                verifiedByExecution: true,
+              },
+            ],
+          }
+        : { approved: true, coverage: ["ran the module", "read the diff"], findings: [] },
+    );
+    return;
+  }
+
+}
+
 const handle = (request) => {
   switch (request.type) {
     case "get_state":
@@ -44,6 +183,13 @@ const handle = (request) => {
       respond(request, null);
       if (mode === "silent") return; // never settles, on purpose
 
+      // Side effects land before agent_settled, matching a real agent: the
+      // harness reads artifacts and diffs only once the turn has settled.
+      void actOnPrompt(String(request.message ?? "")).then(() => {
+        write({ type: "agent_end" });
+        write({ type: "agent_settled" });
+      });
+
       write({ type: "agent_start" });
       write({
         type: "message_update",
@@ -56,8 +202,6 @@ const handle = (request) => {
         args: { path: "x" },
       });
       write({ type: "tool_execution_end", toolCallId: "call_1", toolName: "read", isError: false });
-      write({ type: "agent_end" });
-      write({ type: "agent_settled" });
       return;
     }
 

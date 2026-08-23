@@ -34,6 +34,8 @@ export interface PipelineOptions {
   openPr: boolean;
   onPhase?: (phase: string, detail?: string) => void;
   onText?: (delta: string) => void;
+  /** Test-only override of the pi entry point, threaded to every role. */
+  cliPath?: string;
 }
 
 export interface PipelineResult {
@@ -94,13 +96,16 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
     costUsd: 0,
   };
 
+  const ceiling = harness.pipeline.maxCostUsd;
+
+  const overBudget = (): string | null => {
+    if (ceiling <= 0 || result.costUsd <= ceiling) return null;
+    return `Cost ceiling of $${ceiling.toFixed(2)} reached ($${result.costUsd.toFixed(2)} spent).`;
+  };
+
   const checkBudget = (phase: string): void => {
-    const ceiling = harness.pipeline.maxCostUsd;
-    if (ceiling > 0 && result.costUsd > ceiling) {
-      throw new BudgetExceeded(
-        `Cost ceiling of $${ceiling.toFixed(2)} exceeded before ${phase} ($${result.costUsd.toFixed(2)} spent).`,
-      );
-    }
+    const breach = overBudget();
+    if (breach) throw new BudgetExceeded(`${breach} Stopped before ${phase}.`);
   };
 
   runStore.emit("pipeline:start", {
@@ -143,6 +148,13 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
             runStore,
             baseCommit,
             plan: design.plan,
+            // Spend lands as each unit finishes, so a wide wave cannot run
+            // every unit to completion before the ceiling is consulted.
+            onSpend: (costUsd) => {
+              result.costUsd += costUsd;
+            },
+            budgetExceeded: overBudget,
+            ...(options.cliPath ? { cliPath: options.cliPath } : {}),
             onPhase: (unitId, phase, detail) => onPhase(`${unitId}:${phase}`, detail),
           },
           unit,
@@ -151,7 +163,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
 
       result.units.push(...waveResults);
       for (const unitResult of waveResults) {
-        result.costUsd += unitResult.costUsd;
+        // Spend was already added via onSpend as each unit finished.
         result.unresolved.push(...unitResult.unresolved);
         if (unitResult.status === "passed" && unitResult.commit) {
           const unit = wave.find((candidate) => candidate.id === unitResult.unitId);
@@ -183,6 +195,7 @@ export async function runPipeline(options: PipelineOptions): Promise<PipelineRes
       runStore,
       baseCommit,
       merges,
+      ...(options.cliPath ? { cliPath: options.cliPath } : {}),
       onPhase: (phase, detail) => onPhase(`integrate:${phase}`, detail),
     });
     result.integration = integration;
@@ -286,6 +299,7 @@ async function runDesign(
     worktree: tree,
     role: { ...harness.roles.designer, tools: [...harness.roles.designer.tools, "write"] },
     runStore,
+    ...(options.cliPath ? { cliPath: options.cliPath } : {}),
     ...(options.onText ? { onText: options.onText } : {}),
   });
 

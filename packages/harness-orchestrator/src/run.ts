@@ -16,6 +16,8 @@ export interface BuildRunOptions {
   onText?: (delta: string) => void;
   onGate?: (result: GateResult) => void;
   onPhase?: (phase: string, detail?: string) => void;
+  /** Test-only override of the pi entry point. */
+  cliPath?: string;
 }
 
 export interface BuildRunResult {
@@ -87,6 +89,7 @@ export async function runBuildTask(options: BuildRunOptions): Promise<BuildRunRe
     },
     runStore,
     ...(options.onText ? { onText: options.onText } : {}),
+    ...(options.cliPath ? { cliPath: options.cliPath } : {}),
   });
 
   let diff: DiffStat | null = null;
