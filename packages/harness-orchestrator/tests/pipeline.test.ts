@@ -211,6 +211,52 @@ describe("runPipeline end to end", () => {
     delete process.env.STUB_CONFLICT;
   });
 
+  it("counts adversary sessions, not just implementers, toward run cost", async () => {
+    const result = await runPipeline({
+      loaded: loadConfig(repo),
+      task: "create alpha and beta modules",
+      openPr: false,
+      cliPath: STUB,
+    });
+
+    expect(result.status).toBe("passed");
+    // Five sessions bill at the stub's fixed rate: one designer, two
+    // implementers, one adversary per unit. Dropping the adversaries would
+    // report 3/5 of the real spend and let the ceiling permit far more than
+    // it says.
+    const perSession = 0.4242;
+    expect(result.costUsd).toBeCloseTo(perSession * 5, 4);
+    for (const unit of result.units) {
+      expect(unit.costUsd).toBeCloseTo(perSession * 2, 4);
+    }
+  });
+
+  it("stops dispatching units once the cost ceiling is reached", async () => {
+    // Serial, with a ceiling the first unit is guaranteed to cross.
+    writeFileSync(
+      join(repo, "config", "harness.yaml"),
+      `${HARNESS.replace("concurrency: 2", "concurrency: 1").replace("maxCostUsd: 0", "maxCostUsd: 0.9")}${roleBlock(60000)}`,
+      "utf8",
+    );
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-m", "tighten cost ceiling"]);
+
+    const result = await runPipeline({
+      loaded: loadConfig(repo),
+      task: "create alpha and beta modules",
+      openPr: false,
+      cliPath: STUB,
+    });
+
+    expect(result.status).toBe("failed");
+    const skipped = result.units.filter((unit) => unit.reason?.includes("Cost ceiling"));
+    expect(skipped).toHaveLength(1);
+    // The skipped unit never got a worktree or a session.
+    expect(skipped[0]?.commit).toBeNull();
+    expect(skipped[0]?.reviews).toEqual([]);
+    expect(result.integration).toBeNull();
+  });
+
   it("rejects a plan whose units claim the same files, before building anything", async () => {
     // Rewrite the config so the designer's plan violates the ceiling instead,
     // which is the same class of pre-flight rejection and needs no stub change.
